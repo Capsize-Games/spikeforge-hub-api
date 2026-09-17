@@ -83,6 +83,27 @@ class RateLimitedError(HubError):
     code = "rate_limited"
 
 
+class InvalidRequestError(HubError):
+    """An OAuth request is malformed: a bad parameter, or one missing."""
+
+    status = 400
+    code = "invalid_request"
+
+
+class AuthorizationPendingError(HubError):
+    """A device-code poll arrived before a person approved it."""
+
+    status = 400
+    code = "authorization_pending"
+
+
+class SlowDownError(HubError):
+    """A device-code poll arrived faster than the required interval."""
+
+    status = 429
+    code = "slow_down"
+
+
 class ServiceUnavailableError(HubError):
     """A dependency the request needs is not currently usable."""
 
