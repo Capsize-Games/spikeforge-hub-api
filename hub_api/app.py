@@ -17,6 +17,7 @@ from hub_api.routes import (
     models,
     tokens,
     uploads,
+    verifications,
 )
 
 
@@ -33,7 +34,9 @@ def build() -> FastAPI:
     )
     _allow_origins(app, config)
     app.add_exception_handler(HubError, _render_problem)
-    for module in (health, auth, me, models, tokens, uploads):
+    for module in (
+        health, auth, me, models, tokens, uploads, verifications,
+    ):
         app.include_router(module.router)
     return app
 

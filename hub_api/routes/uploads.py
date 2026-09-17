@@ -12,12 +12,12 @@ import sqlalchemy as sa
 from fastapi import APIRouter, Request
 
 from hub_api.db.models.hub_model import HubModel
-from hub_api.db.models.model_version import ModelVersion
+from hub_api.db.models.model_version import VERIFYING, ModelVersion
 from hub_api.db.models.user import User
 from hub_api.deps import ConfigDep, SessionDep, StorageDep, WriteUser
 from hub_api.errors import ConflictError, NotFoundError
 from hub_api.schemas.uploads import UploadIntent
-from hub_api.uploads import publish, receive, reserve
+from hub_api.uploads import notify, publish, receive, reserve
 
 router = APIRouter(prefix="/v1/uploads")
 
@@ -95,6 +95,10 @@ async def commit(
     version = await _owned_version(session, upload_id, user)
     published = await publish(session, version, config)
     await session.commit()
+    if published.state == VERIFYING:
+        # Best-effort: a lost trigger does not undo the commit above, and
+        # can be re-run by hand -- see hub_api.uploads.dispatch.
+        await notify(config, published)
     return {
         "upload_id": str(published.id),
         "state": published.state,
