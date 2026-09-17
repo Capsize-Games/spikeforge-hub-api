@@ -17,6 +17,8 @@ from hub_api.auth import credentials, sessions
 from hub_api.config import Settings, settings
 from hub_api.db.engine import db_session
 from hub_api.db.models.user import User
+from hub_api.email.base import EmailSender
+from hub_api.email.factory import email_sender
 from hub_api.errors import ForbiddenError, UnauthorizedError
 from hub_api.routes.cookies import cookie_name
 from hub_api.storage.base import Storage
@@ -25,6 +27,7 @@ from hub_api.storage.factory import storage
 SessionDep = Annotated[AsyncSession, Depends(db_session)]
 ConfigDep = Annotated[Settings, Depends(settings)]
 StorageDep = Annotated[Storage, Depends(storage)]
+EmailDep = Annotated[EmailSender, Depends(email_sender)]
 
 
 def _bearer(request: Request) -> str | None:

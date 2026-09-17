@@ -57,7 +57,7 @@ async def register(
 ) -> User:
     """Create an account from an address and a password."""
     address = normalise_email(email)
-    _check_strength(password)
+    check_password_strength(password)
     if await by_email(session, address) is not None:
         raise ConflictError(
             "an account already exists for that address; sign in, or reset "
@@ -75,8 +75,13 @@ async def register(
     return created
 
 
-def _check_strength(password: str) -> None:
-    """Refuse a password the policy rejects, carrying its reason."""
+def check_password_strength(password: str) -> None:
+    """Refuse a password the policy rejects, carrying its reason.
+
+    Shared by every call site that accepts a new or changed password --
+    register and password-reset confirm -- so neither can drift onto a
+    weaker check.
+    """
     try:
         PASSWORD_POLICY.check(password)
     except PasswordValidationError as error:

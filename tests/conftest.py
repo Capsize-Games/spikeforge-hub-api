@@ -11,6 +11,7 @@ assumed unnecessary.
 import os
 import uuid
 from collections.abc import AsyncIterator
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -60,6 +61,36 @@ def config(tmp_path: Path) -> Settings:
 def storage(config: Settings) -> VolumeStorage:
     """Return storage backed by the temporary volume."""
     return VolumeStorage(config.artifact_root, config.tmp_root)
+
+
+@dataclass(frozen=True)
+class SentEmail:
+    """One message a :class:`RecordingEmailSender` was asked to send."""
+
+    to: str
+    subject: str
+    body: str
+
+
+@dataclass
+class RecordingEmailSender:
+    """An :class:`~hub_api.email.base.EmailSender` that records, not sends.
+
+    Stands in for a real transport in tests, so a route's decision to send
+    -- and what it sent -- is checkable without an SMTP server.
+    """
+
+    sent: list[SentEmail] = field(default_factory=list)
+
+    async def send(self, to: str, subject: str, body: str) -> None:
+        """Record the message instead of delivering it."""
+        self.sent.append(SentEmail(to, subject, body))
+
+
+@pytest.fixture
+def email() -> RecordingEmailSender:
+    """Return a fresh recording email sender for one test."""
+    return RecordingEmailSender()
 
 
 #: Set to a PostgreSQL URL to run the suite against a real instance instead
@@ -121,24 +152,30 @@ async def make_user(
 
 @pytest.fixture
 async def client(
-    session: AsyncSession, config: Settings, storage: VolumeStorage
+    session: AsyncSession,
+    config: Settings,
+    storage: VolumeStorage,
+    email: RecordingEmailSender,
 ) -> AsyncIterator["AsyncClient"]:
     """Yield an HTTP client wired to the test database and volume.
 
     The dependencies are overridden rather than the environment configured,
-    so a test never touches the real volume path or a real database.
+    so a test never touches the real volume path or a real database -- or
+    sends a real email.
     """
     from httpx import ASGITransport, AsyncClient
 
     from hub_api.app import build
     from hub_api.config import settings as settings_dep
     from hub_api.db.engine import db_session
+    from hub_api.email.factory import email_sender as email_sender_dep
     from hub_api.storage.factory import storage as storage_dep
 
     app = build()
     app.dependency_overrides[db_session] = lambda: session
     app.dependency_overrides[settings_dep] = lambda: config
     app.dependency_overrides[storage_dep] = lambda: storage
+    app.dependency_overrides[email_sender_dep] = lambda: email
     transport = ASGITransport(app=app)
     async with AsyncClient(
         transport=transport, base_url="http://hub.test"

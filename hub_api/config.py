@@ -59,6 +59,12 @@ class Settings(BaseSettings):
     refresh_token_ttl_seconds: int = 90 * 24 * 3600
     authorization_code_ttl_seconds: int = 300
     device_code_ttl_seconds: int = 900
+    #: How long a verification-token link stays redeemable (§3, issues #1
+    #: and #2). Verification is long-lived because it competes with an
+    #: inbox the person may not check right away; reset is short-lived
+    #: because it grants a password change.
+    email_verification_ttl_seconds: int = 24 * 3600
+    password_reset_ttl_seconds: int = 3600
 
     #: ``invite`` keeps publishing closed while moderation is one person
     #: (§12); ``open`` lets any signed-in account publish.
@@ -95,6 +101,17 @@ class Settings(BaseSettings):
     cookie_name: str = "__Host-sfh_session"
     #: Off only for local HTTP development; ``__Host-`` requires Secure.
     cookie_secure: bool = True
+
+    #: The transactional email transport, for verification and password
+    #: reset links. No vendor is hardcoded: this deployment has not chosen
+    #: one yet (plan §3.1), so an empty host is the honest default and
+    #: ``EmailSender.send`` raises rather than pretending to have sent.
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from: str = "no-reply@hub.spikeforge.net"
+    smtp_use_tls: bool = True
 
     log_level: str = Field(default="info")
     #: Bind address. The default serves every interface, which is what a
