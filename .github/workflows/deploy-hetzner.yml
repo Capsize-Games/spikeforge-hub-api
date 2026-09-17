@@ -1,0 +1,123 @@
+name: Deploy hub API to Hetzner
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "hub_api/**"
+      - "migrations/**"
+      - "alembic.ini"
+      - "pyproject.toml"
+      - "Dockerfile"
+      - "compose.yaml"
+      - "deploy/**"
+      - ".github/workflows/deploy-hetzner.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, linux, x64, spikeforge-ci]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install rsync
+        run: sudo apt-get update && sudo apt-get install -y rsync
+
+      - name: Sync source to Hetzner
+        env:
+          HETZNER_HOST: ${{ secrets.HETZNER_HOST }}
+          HETZNER_USER: ${{ secrets.HETZNER_USER }}
+          HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          printf '%s\n' "$HETZNER_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$HETZNER_HOST" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes \
+            "$HETZNER_USER@$HETZNER_HOST" \
+            'mkdir -p /opt/spikeforge-hub-api'
+          rsync -rl --delete \
+            --exclude='.git' \
+            --exclude='.env' \
+            --exclude='.venv' \
+            --exclude='**/__pycache__' \
+            --exclude='*.egg-info' \
+            --exclude='.mypy_cache' \
+            --exclude='.pytest_cache' \
+            --exclude='.ruff_cache' \
+            --exclude='.coverage' \
+            -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes" \
+            ./ "$HETZNER_USER@$HETZNER_HOST:/opt/spikeforge-hub-api/"
+
+      - name: Write production environment
+        env:
+          HETZNER_HOST: ${{ secrets.HETZNER_HOST }}
+          HETZNER_USER: ${{ secrets.HETZNER_USER }}
+          HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
+          ENV_CONTENT: ${{ secrets.SPIKEFORGE_HUB_ENV_FILE }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$ENV_CONTENT" | ssh -i ~/.ssh/deploy_key \
+            -o StrictHostKeyChecking=yes "$HETZNER_USER@$HETZNER_HOST" \
+            'cat > /opt/spikeforge-hub-api/.env && chmod 600 /opt/spikeforge-hub-api/.env'
+
+      - name: Prepare bind-mount host paths
+        env:
+          HETZNER_HOST: ${{ secrets.HETZNER_HOST }}
+          HETZNER_USER: ${{ secrets.HETZNER_USER }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes \
+            "$HETZNER_USER@$HETZNER_HOST" \
+            'bash /opt/spikeforge-hub-api/deploy/prepare-host-paths.sh'
+
+      - name: Report disk capacity without deleting other services' images
+        env:
+          HETZNER_HOST: ${{ secrets.HETZNER_HOST }}
+          HETZNER_USER: ${{ secrets.HETZNER_USER }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes \
+            "$HETZNER_USER@$HETZNER_HOST" \
+            'df -h /'
+
+      - name: Build and restart hub API
+        env:
+          HETZNER_HOST: ${{ secrets.HETZNER_HOST }}
+          HETZNER_USER: ${{ secrets.HETZNER_USER }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes \
+            "$HETZNER_USER@$HETZNER_HOST" \
+            'cd /opt/spikeforge-hub-api && docker compose -p spikeforge-hub-api --env-file .env -f compose.yaml up -d --build --remove-orphans'
+
+      - name: Verify hub API health
+        if: always()
+        env:
+          HETZNER_HOST: ${{ secrets.HETZNER_HOST }}
+          HETZNER_USER: ${{ secrets.HETZNER_USER }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes \
+            "$HETZNER_USER@$HETZNER_HOST" '
+              set -euo pipefail
+              cd /opt/spikeforge-hub-api
+              docker compose -p spikeforge-hub-api --env-file .env -f compose.yaml ps
+              for i in $(seq 1 20); do
+                status=$(docker inspect --format "{{.State.Health.Status}}" spikeforge-hub-api 2>/dev/null || echo "unknown")
+                if [ "$status" = "healthy" ]; then
+                  echo "spikeforge-hub-api is healthy"
+                  exit 0
+                fi
+                echo "waiting for health (attempt $i/20): $status"
+                sleep 3
+              done
+              echo "spikeforge-hub-api did not become healthy in time" >&2
+              docker logs --tail 100 spikeforge-hub-api >&2 || true
+              exit 1
+            '
+
+      - name: Clean up SSH key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
