@@ -61,8 +61,9 @@ class Settings(BaseSettings):
     device_code_ttl_seconds: int = 900
 
     #: ``invite`` keeps publishing closed while moderation is one person
-    #: (§12); ``open`` lets any signed-in account publish.
-    publishing_gate: Literal["invite", "open"] = "invite"
+    #: (§12); ``open`` lets any signed-in account publish. The operator has
+    #: chosen ``open`` from launch.
+    publishing_gate: Literal["invite", "open"] = "open"
 
     #: When True a committed version waits for the verification sandbox
     #: before it is published. Until that plane exists, setting it False
