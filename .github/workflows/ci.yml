@@ -30,9 +30,15 @@ jobs:
         with:
           python-version: "3.12"
 
+      # capsize-auth is not on PyPI yet, so it is installed from source
+      # first, matching the Dockerfile's CAPSIZE_AUTH_SPEC build argument.
+      # Without this the project install below fails to resolve the
+      # dependency at all.
       - name: Install
         run: |
           python -m pip install --upgrade pip
+          pip install \
+            "capsize-auth @ git+https://github.com/capsize-games/capsize-auth.git@main"
           pip install -e ".[dev]"
 
       - name: Lint
