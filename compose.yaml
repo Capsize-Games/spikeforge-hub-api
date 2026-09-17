@@ -1,0 +1,70 @@
+# Production composition for the shared Hetzner host.
+#
+# Two rules this file exists to hold:
+#
+#  * Nothing persistent uses a Docker named volume. Those live under
+#    /var/lib/docker on the root disk, which has under a gigabyte free. Both
+#    the artifacts and the database data directory are absolute bind mounts
+#    onto the attached volume, following the convention the WXRQ deployment
+#    already established.
+#  * No host port is published. Caddy already terminates TLS on this box and
+#    reaches the service over the shared network.
+services:
+  hub-api:
+    build: .
+    container_name: spikeforge-hub-api
+    environment:
+      SPIKEFORGE_HUB_DATABASE_URL: >-
+        postgresql+psycopg://hub:${POSTGRES_PASSWORD}@hub-db:5432/hub
+      SPIKEFORGE_HUB_BASE_URL: ${HUB_BASE_URL:-https://hub.spikeforge.net}
+      SPIKEFORGE_HUB_ARTIFACT_PUBLIC_BASE: >-
+        ${ARTIFACT_PUBLIC_BASE:-https://cdn.spikeforge.net}
+      SPIKEFORGE_HUB_ARTIFACT_ROOT: /data/artifacts
+      SPIKEFORGE_HUB_TMP_ROOT: /data/tmp
+      SPIKEFORGE_HUB_TOKEN_SECRET: ${HUB_TOKEN_SECRET}
+      SPIKEFORGE_HUB_OAUTH_PROVIDERS: ${HUB_OAUTH_PROVIDERS:-{}}
+      SPIKEFORGE_HUB_PUBLISHING_GATE: ${HUB_PUBLISHING_GATE:-invite}
+      SPIKEFORGE_HUB_REQUIRE_VERIFICATION: >-
+        ${HUB_REQUIRE_VERIFICATION:-true}
+      SPIKEFORGE_HUB_FOOTPRINT_CAP_BYTES: >-
+        ${HUB_FOOTPRINT_CAP_BYTES:-10737418240}
+      SPIKEFORGE_HUB_VOLUME_FREE_FLOOR_BYTES: >-
+        ${HUB_VOLUME_FREE_FLOOR_BYTES:-5368709120}
+      SPIKEFORGE_HUB_CORS_ORIGINS: >-
+        ${HUB_CORS_ORIGINS:-https://dash.spikeforge.net}
+    volumes:
+      - /mnt/HC_Volume_106876357/spikeforge/artifacts:/data/artifacts
+      - /mnt/HC_Volume_106876357/spikeforge/tmp:/data/tmp
+    depends_on:
+      hub-db:
+        condition: service_healthy
+    networks:
+      - uwu_shared
+    restart: unless-stopped
+
+  hub-db:
+    image: postgres:16-alpine
+    container_name: spikeforge-hub-db
+    environment:
+      POSTGRES_USER: hub
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: hub
+      # The data directory is a subdirectory of the mount rather than the
+      # mount itself: initdb refuses a directory containing lost+found.
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - /mnt/HC_Volume_106876357/spikeforge/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hub -d hub"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - uwu_shared
+    restart: unless-stopped
+
+networks:
+  uwu_shared:
+    external: true
+    name: uwu_shared

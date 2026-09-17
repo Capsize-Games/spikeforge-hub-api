@@ -1,0 +1,36 @@
+# Site blocks for the hub API and the artifact bytes.
+#
+# The canonical place for these is airunnerweb's
+# extensions/docker/Caddyfile, which is bind-mounted read-only into the
+# shared uwuchat-caddy-1 container. This file is the content to add, kept
+# here so the service's routing lives with the service.
+#
+# Note the estate has two mechanisms for this: the airunnerweb Caddyfile
+# above, and spikeforge's own deploy/configure-docs.sh, which appends to the
+# host-owned config in place with a validate-then-reload. Prefer the former
+# for new blocks; the divergence is noted so it is not rediscovered.
+
+hub.spikeforge.net {
+	encode zstd gzip
+	reverse_proxy spikeforge-hub-api:8878
+}
+
+cdn.spikeforge.net {
+	encode zstd gzip
+
+	# Artifact bytes, served straight off the attached volume. The
+	# application authorizes a download and redirects here rather than
+	# streaming the file itself: on a host with roughly a gigabyte of
+	# available RAM there is no reason for a Python process to sit in the
+	# path of a transfer it does not inspect.
+	#
+	# Paths are content-addressed, immutable, and public, so they cache
+	# forever. A takedown deletes the file, which is the reason the bytes
+	# live on a filesystem this deployment controls.
+	root * /mnt/HC_Volume_106876357/spikeforge/artifacts
+	file_server {
+		precompressed
+	}
+	header Cache-Control "public, max-age=31536000, immutable"
+	header Access-Control-Allow-Origin "*"
+}

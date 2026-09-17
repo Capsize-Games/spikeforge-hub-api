@@ -1,0 +1,35 @@
+# Ruff configuration mirroring the Python style rules in the spikeforge
+# repository's ``rules.md``, which this service is held to as well.
+
+line-length = 79
+target-version = "py311"
+
+[lint]
+select = [
+    "A",    # flake8-builtins
+    "ANN",  # flake8-annotations (type hints on every signature)
+    "B",    # flake8-bugbear
+    "C4",   # flake8-comprehensions
+    "D",    # pydocstyle (public docstrings)
+    "E",    # pycodestyle errors (incl. E501 line length)
+    "F",    # pyflakes
+    "I",    # isort
+    "N",    # pep8-naming
+    "RET",  # flake8-return
+    "SIM",  # flake8-simplify
+    "UP",   # pyupgrade
+    "W",    # pycodestyle warnings
+]
+ignore = [
+    "D203",  # conflicts with D211 (blank line before class docstring)
+    "D213",  # conflicts with D212 (summary on the closing-quote line)
+]
+
+[lint.per-file-ignores]
+# Alembic's revision modules are generated artifacts, not hand-written code:
+# autogenerate emits one long call per index and its own docstring header, and
+# reformatting them by hand would be undone by the next generated revision.
+# The style rules apply to the code we write.
+"migrations/versions/*" = ["D100", "D103", "D400", "D415", "E501", "I001", "W291"]
+# Test names are the documentation; a docstring restating one is noise.
+"tests/*" = ["D100", "D103"]
