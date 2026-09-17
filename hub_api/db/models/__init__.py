@@ -14,6 +14,7 @@ from hub_api.db.models.quota_entry import QuotaEntry
 from hub_api.db.models.session import Session
 from hub_api.db.models.token import Token
 from hub_api.db.models.user import User
+from hub_api.db.models.verification_token import VerificationToken
 
 __all__ = [
     "AuthCode",
@@ -25,4 +26,5 @@ __all__ = [
     "Session",
     "Token",
     "User",
+    "VerificationToken",
 ]

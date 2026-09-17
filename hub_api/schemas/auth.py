@@ -50,3 +50,22 @@ class RefreshBody(BaseModel):
     """A refresh token presented for rotation."""
 
     refresh_token: str = Field(min_length=1, max_length=512)
+
+
+class VerifyBody(BaseModel):
+    """A verification token to redeem."""
+
+    token: str = Field(min_length=1, max_length=512)
+
+
+class PasswordResetRequestBody(BaseModel):
+    """An address to start a password reset for."""
+
+    email: EmailStr
+
+
+class PasswordResetConfirmBody(BaseModel):
+    """A reset token and the new password to set with it."""
+
+    token: str = Field(min_length=1, max_length=512)
+    password: str = Field(min_length=8, max_length=1024)

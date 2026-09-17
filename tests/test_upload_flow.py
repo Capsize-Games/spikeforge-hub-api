@@ -5,6 +5,7 @@ from datetime import timedelta
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from hub_api.auth import verification
 from hub_api.config import Settings
 from hub_api.db.base import utcnow
 from hub_api.db.models import User
@@ -15,6 +16,7 @@ from hub_api.db.models.model_version import (
     VERIFYING,
     ModelVersion,
 )
+from hub_api.db.models.verification_token import EMAIL_VERIFICATION
 from hub_api.errors import (
     ConflictError,
     ForbiddenError,
@@ -201,6 +203,30 @@ async def test_an_unverified_address_may_not_publish(
         await reserve(
             session, storage, unverified, request_for(payload(SIZE)), config
         )
+
+
+async def test_redeeming_a_verification_token_lets_the_account_publish(
+    session: AsyncSession,
+    storage: VolumeStorage,
+    config: Settings,
+) -> None:
+    unverified = await make_user(
+        session, config, handle="nowproven", email_verified=False
+    )
+    token = await verification.mint(
+        session, unverified, EMAIL_VERIFICATION, config
+    )
+    redeemed = await verification.redeem(
+        session, token, EMAIL_VERIFICATION
+    )
+    # Redeeming only proves the token; the route sets the flag itself.
+    redeemed.email_verified = True
+    await session.flush()
+
+    reservation = await reserve(
+        session, storage, redeemed, request_for(payload(SIZE)), config
+    )
+    assert reservation.size_bytes == SIZE
 
 
 async def test_the_invite_gate_refuses_an_uninvited_account(

@@ -32,6 +32,11 @@ async def sign_in(client: AsyncClient, session: AsyncSession) -> None:
         .values(email_verified=True)
     )
     await session.commit()
+    # A Core-level update does not reliably refresh an already-loaded ORM
+    # object in the identity map (the row it created, from ``register``'s
+    # own session.add), so the next request could still see the stale,
+    # unverified copy without this.
+    session.expire_all()
 
 
 def intent(data: bytes, **overrides: object) -> dict[str, Any]:
