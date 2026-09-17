@@ -12,7 +12,7 @@ from fastapi.responses import RedirectResponse
 from hub_api.catalog import index, queries
 from hub_api.catalog.trust import label_for
 from hub_api.db.models.hub_model import HubModel
-from hub_api.db.models.model_version import ModelVersion
+from hub_api.db.models.model_version import REJECTED, ModelVersion
 from hub_api.deps import ConfigDep, SessionDep
 from hub_api.errors import NotFoundError
 
@@ -83,10 +83,18 @@ def _summarise(
 async def show_model(
     handle: str, slug: str, session: SessionDep
 ) -> dict[str, Any]:
-    """Return a model's latest published version and its declarations."""
+    """Return a model's latest published version, or why it was rejected."""
     row = await queries.latest_version(session, handle, slug)
-    if row is None:
+    if row is not None:
+        return _shown(row)
+    rejected = await queries.latest_rejected(session, handle, slug)
+    if rejected is None:
         raise NotFoundError(f"no published model @{handle}/{slug}")
+    return _rejection(rejected)
+
+
+def _shown(row: queries.PublishedRow) -> dict[str, Any]:
+    """Return the detail shape for a model's latest published version."""
     model, version, owner = row
     body = _summarise(model, version, owner)
     body["description"] = model.description
@@ -94,6 +102,28 @@ async def show_model(
     body["dataset_attribution"] = model.dataset_attribution
     body["verification"] = version.verification
     return body
+
+
+def _rejection(row: queries.PublishedRow) -> dict[str, Any]:
+    """Return why a model's most recent version did not publish.
+
+    No trust label applies: the artifact was refused, not merely left
+    unchecked, so this shape carries the named reasons instead --
+    ``hub_api.uploads.verify`` refuses to store a failing report that has
+    none, and a bare 404 here would bury them just as effectively as the
+    bare "verification failed" message the honesty bar refuses.
+    """
+    model, version, owner = row
+    report = version.verification or {}
+    return {
+        "id": f"@{owner}/{model.slug}",
+        "owner": owner,
+        "name": model.slug,
+        "version": version.version,
+        "state": REJECTED,
+        "rejection_reasons": report.get("reasons", []),
+        "verification": report,
+    }
 
 
 @router.get("/models/{handle}/{slug}/versions/{version}/download")

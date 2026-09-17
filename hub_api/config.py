@@ -83,6 +83,20 @@ class Settings(BaseSettings):
     #: Shared secret the verification job signs its report callback with.
     verification_secret: str = ""
 
+    #: ``owner/repo`` the verification sandbox lives in
+    #: (plan Sect.7.2, Sect.9).
+    #: Empty disables the ``repository_dispatch`` trigger: a deployment with
+    #: no sandbox wired up yet must not fail a commit over a webhook it has
+    #: nowhere to send.
+    verification_dispatch_repo: str = ""
+    #: Fine-grained token scoped to ``repository_dispatch`` on that one repo.
+    #: Never the Hetzner deploy key -- see AGENTS.md invariant 4's sibling
+    #: reasoning about which credentials may sit near untrusted content.
+    verification_dispatch_token: str = ""
+    #: The ``repository_dispatch`` ``event_type`` the sandbox workflow
+    #: listens for.
+    verification_dispatch_event: str = "verify_model_version"
+
     #: Comma-separated origins allowed to call the API with credentials.
     cors_origins: str = "https://dash.spikeforge.net"
 
