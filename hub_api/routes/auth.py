@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from capsize_auth.oauth2 import OAuth2Error, generate
+from capsize_auth.oauth2 import OAuth2Error, OAuthProfile, generate
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import RedirectResponse
 
@@ -131,15 +131,7 @@ async def oauth_callback(
     config: ConfigDep,
 ) -> dict[str, Any]:
     """Complete a provider sign-in and open a session."""
-    verifier = read_state(state, provider, config)
-    try:
-        profile = await providers().client(provider).complete(
-            code, verifier
-        )
-    except OAuth2Error as error:
-        raise UnauthorizedError(
-            f"{provider} sign-in failed: {error}"
-        ) from error
+    profile = await _profile_from(provider, code, state, config)
     user = await accounts.link_or_create(session, profile, config)
     cookie = await sessions.start(
         session, user, config, request.headers.get("user-agent", "")
@@ -147,6 +139,19 @@ async def oauth_callback(
     await session.commit()
     set_session(response, cookie, config)
     return {"handle": user.handle, "provider": provider}
+
+
+async def _profile_from(
+    provider: str, code: str, state: str, config: ConfigDep
+) -> OAuthProfile:
+    """Exchange a callback for the provider's profile, or refuse."""
+    verifier = read_state(state, provider, config)
+    try:
+        return await providers().client(provider).complete(code, verifier)
+    except OAuth2Error as error:
+        raise UnauthorizedError(
+            f"{provider} sign-in failed: {error}"
+        ) from error
 
 
 @router.post("/v1/auth/sessions/revoke-all")

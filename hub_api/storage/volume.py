@@ -69,11 +69,7 @@ class VolumeStorage:
         with path.open("wb") as handle:
             async for chunk in chunks:
                 written += len(chunk)
-                if written > max_bytes:
-                    raise QuotaExceededError(
-                        "the upload is larger than the reservation allowed",
-                        limit_bytes=max_bytes,
-                    )
+                _check_cap(written, max_bytes)
                 digest.update(chunk)
                 await asyncio.to_thread(handle.write, chunk)
             await asyncio.to_thread(handle.flush)
@@ -126,3 +122,16 @@ class VolumeStorage:
     def signed_url(self, key: str, ttl_seconds: int) -> str | None:
         """Return None: this backend is served by the proxy instead."""
         return None
+
+
+def _check_cap(written: int, max_bytes: int) -> None:
+    """Stop a stream that has passed what the reservation allowed.
+
+    Checked per chunk rather than from a declared length, because the
+    declared length is the caller's claim about what they are about to send.
+    """
+    if written > max_bytes:
+        raise QuotaExceededError(
+            "the upload is larger than the reservation allowed",
+            limit_bytes=max_bytes,
+        )

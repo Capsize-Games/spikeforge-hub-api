@@ -31,13 +31,17 @@ async def publish(
     if config.require_verification:
         version.state = VERIFYING
     else:
-        version.state = PUBLISHED
-        version.published_at = utcnow()
-        version.verification = {
-            "passed": None,
-            "reason": "no verification plane is configured on this "
-            "deployment, so this artifact carries no machine checks beyond "
-            "its checksum",
-        }
+        _publish_unchecked(version)
     await session.flush()
     return version
+
+
+def _publish_unchecked(version: ModelVersion) -> None:
+    """Publish with a report that says plainly nothing was checked."""
+    version.state = PUBLISHED
+    version.published_at = utcnow()
+    version.verification = {
+        "passed": None,
+        "reason": "no verification plane is configured on this deployment, "
+        "so this artifact carries no machine checks beyond its checksum",
+    }

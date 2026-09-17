@@ -14,7 +14,7 @@ ending the session than by issuing more credentials.
 
 import uuid
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -53,33 +53,40 @@ def _ttl_for(kind: str, config: Settings) -> int | None:
     return None
 
 
+@dataclass(frozen=True)
+class _Mint:
+    """What one token row needs, grouped to keep the minting call short."""
+
+    user_id: uuid.UUID
+    kind: str
+    scopes: list[str]
+    chain_id: uuid.UUID | None = None
+    name: str = ""
+
+
 async def _mint(
-    session: AsyncSession,
-    user_id: uuid.UUID,
-    kind: str,
-    scopes: list[str],
-    config: Settings,
-    chain_id: uuid.UUID | None = None,
-    name: str = "",
+    session: AsyncSession, spec: _Mint, config: Settings
 ) -> str:
     """Create a token row and return its one-time plaintext."""
-    token = new_token(prefix=_PREFIXES[kind])
-    ttl = _ttl_for(kind, config)
+    token = new_token(prefix=_PREFIXES[spec.kind])
     session.add(
         Token(
             token_hash=token.hashed,
-            user_id=user_id,
-            kind=kind,
-            name=name,
-            scopes=scopes,
-            chain_id=chain_id or uuid.uuid4(),
-            expires_at=(
-                utcnow() + timedelta(seconds=ttl) if ttl else None
-            ),
+            user_id=spec.user_id,
+            kind=spec.kind,
+            name=spec.name,
+            scopes=spec.scopes,
+            chain_id=spec.chain_id or uuid.uuid4(),
+            expires_at=_expiry(_ttl_for(spec.kind, config)),
         )
     )
     await session.flush()
     return token.plaintext
+
+
+def _expiry(ttl: int | None) -> datetime | None:
+    """Return when a token with lifetime ``ttl`` stops working."""
+    return utcnow() + timedelta(seconds=ttl) if ttl else None
 
 
 async def issue_pair(
@@ -92,10 +99,10 @@ async def issue_pair(
     """Issue an access/refresh pair for ``user``."""
     chain = chain_id or uuid.uuid4()
     access = await _mint(
-        session, user.id, ACCESS, scopes, config, chain_id=chain
+        session, _Mint(user.id, ACCESS, scopes, chain), config
     )
     refresh = await _mint(
-        session, user.id, REFRESH, scopes, config, chain_id=chain
+        session, _Mint(user.id, REFRESH, scopes, chain), config
     )
     return IssuedPair(
         access_token=access,
@@ -114,7 +121,7 @@ async def issue_pat(
 ) -> str:
     """Issue a personal access token and return its plaintext once."""
     return await _mint(
-        session, user.id, PAT, scopes, config, name=name
+        session, _Mint(user.id, PAT, scopes, name=name), config
     )
 
 
@@ -128,11 +135,7 @@ async def resolve(
     if row is None or row.kind == REFRESH:
         raise UnauthorizedError("the credential presented is not usable")
     _check_live(row)
-    user = await session.get(User, row.user_id)
-    if user is None or user.state != ACTIVE:
-        raise UnauthorizedError(
-            "the account for this credential is not active"
-        )
+    user = await _active_owner(session, row)
     row.last_used_at = utcnow()
     await session.flush()
     return user, row
@@ -158,23 +161,42 @@ async def rotate(
     )
     if row is None:
         raise UnauthorizedError("no such refresh token")
-    if row.revoked_at is not None:
-        await _break_chain(session, row.chain_id)
-        raise UnauthorizedError(
-            "this refresh token was already exchanged; the session has been "
-            "ended because a replayed refresh token means it may be in "
-            "someone else's hands"
-        )
+    await _check_not_replayed(session, row)
     _check_live(row)
+    user = await _active_owner(session, row)
+    row.revoked_at = utcnow()
+    return await issue_pair(
+        session, user, list(row.scopes), config, chain_id=row.chain_id
+    )
+
+
+async def _check_not_replayed(
+    session: AsyncSession, row: Token
+) -> None:
+    """End the whole grant if an already-exchanged token comes back.
+
+    The only ways that happens are a stolen token being replayed and a
+    client bug, and both are better answered by ending the session than by
+    issuing more credentials.
+    """
+    if row.revoked_at is None:
+        return
+    await _break_chain(session, row.chain_id)
+    raise UnauthorizedError(
+        "this refresh token was already exchanged; the session has been "
+        "ended because a replayed refresh token means it may be in "
+        "someone else's hands"
+    )
+
+
+async def _active_owner(session: AsyncSession, row: Token) -> User:
+    """Return the token's account, refusing one that is not active."""
     user = await session.get(User, row.user_id)
     if user is None or user.state != ACTIVE:
         raise UnauthorizedError(
             "the account for this credential is not active"
         )
-    row.revoked_at = utcnow()
-    return await issue_pair(
-        session, user, list(row.scopes), config, chain_id=row.chain_id
-    )
+    return user
 
 
 async def _break_chain(

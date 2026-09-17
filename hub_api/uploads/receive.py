@@ -82,14 +82,36 @@ async def receive(
     blob = await storage.stage(
         str(upload_id), chunks, max_bytes=version.size_bytes
     )
+    await _verify_or_abandon(session, storage, version, blob)
+    version.object_key = await storage.promote(str(upload_id), blob.sha256)
+    version.state = UPLOADED
+    _charge(session, user_id, version, blob)
+    await session.flush()
+    return version
+
+
+async def _verify_or_abandon(
+    session: AsyncSession,
+    storage: Storage,
+    version: ModelVersion,
+    blob: StoredBlob,
+) -> None:
+    """Check the measured bytes, discarding them when they do not match."""
     try:
         _check_measured(version, blob)
     except UnprocessableUploadError:
-        await storage.discard(str(upload_id))
+        await storage.discard(str(version.id))
         await _abandon(session, version)
         raise
-    version.object_key = await storage.promote(str(upload_id), blob.sha256)
-    version.state = UPLOADED
+
+
+def _charge(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    version: ModelVersion,
+    blob: StoredBlob,
+) -> None:
+    """Append the ledger entry for bytes that are now stored."""
     session.add(
         QuotaEntry(
             user_id=user_id,
@@ -98,8 +120,6 @@ async def receive(
             reason=COMMIT,
         )
     )
-    await session.flush()
-    return version
 
 
 async def _abandon(session: AsyncSession, version: ModelVersion) -> None:

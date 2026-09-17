@@ -36,6 +36,21 @@ def entry_for(
 ) -> dict[str, Any]:
     """Return one catalog entry for a published version."""
     report = version.verification or {}
+    entry = _core(model, version, handle, download_base, report)
+    entry.update(_provenance(model))
+    entry["topology"] = report.get("topology")
+    entry["input_shape"] = report.get("input_shape")
+    return entry
+
+
+def _core(
+    model: HubModel,
+    version: ModelVersion,
+    handle: str,
+    download_base: str,
+    report: dict[str, Any],
+) -> dict[str, Any]:
+    """Return the fields the curated schema requires of every entry."""
     return {
         "id": entry_id(handle, model.slug),
         "name": model.summary or model.slug,
@@ -46,11 +61,19 @@ def entry_for(
         "notes": _notes(model, version),
         "url": f"{download_base.rstrip('/')}/{version.object_key}",
         "size_bytes": version.size_bytes,
+    }
+
+
+def _provenance(model: HubModel) -> dict[str, Any]:
+    """Return the dataset declarations, as None rather than empty strings.
+
+    The curated schema distinguishes "not stated" from "stated as empty",
+    and an empty string in a licence field would read as the latter.
+    """
+    return {
         "dataset": model.dataset or None,
         "dataset_license": model.dataset_license or None,
         "dataset_attribution": model.dataset_attribution or None,
-        "topology": report.get("topology"),
-        "input_shape": report.get("input_shape"),
     }
 
 

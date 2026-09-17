@@ -8,7 +8,7 @@ transfer rather than discovered during it.
 
 import uuid
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -124,6 +124,13 @@ async def _model_for(
     if found is not None:
         return found
     await check_model_count(session, user.id, config)
+    return await _create_model(session, user, request)
+
+
+async def _create_model(
+    session: AsyncSession, user: User, request: UploadRequest
+) -> HubModel:
+    """Create the model row a first publish needs."""
     created = HubModel(
         owner_id=user.id,
         slug=request.slug,
@@ -138,13 +145,10 @@ async def _model_for(
     return created
 
 
-async def _open_slot(
-    session: AsyncSession,
-    model: HubModel,
-    request: UploadRequest,
-    config: Settings,
-) -> Reservation:
-    """Create the reserved version row that holds the allowance."""
+async def _check_version_free(
+    session: AsyncSession, model: HubModel, request: UploadRequest
+) -> None:
+    """Refuse a version name that is already taken."""
     clash = await session.scalar(
         sa.select(ModelVersion.id).where(
             ModelVersion.model_id == model.id,
@@ -156,6 +160,16 @@ async def _open_slot(
             f"version {request.version!r} already exists; versions are "
             "immutable, so publish a new one instead"
         )
+
+
+async def _open_slot(
+    session: AsyncSession,
+    model: HubModel,
+    request: UploadRequest,
+    config: Settings,
+) -> Reservation:
+    """Create the reserved version row that holds the allowance."""
+    await _check_version_free(session, model, request)
     expires = utcnow() + timedelta(seconds=config.reservation_ttl_seconds)
     version = ModelVersion(
         model_id=model.id,
@@ -167,9 +181,14 @@ async def _open_slot(
     )
     session.add(version)
     await session.flush()
+    return _granted(version, expires)
+
+
+def _granted(version: ModelVersion, expires: datetime) -> Reservation:
+    """Return the reservation describing a held slot."""
     return Reservation(
         upload_id=version.id,
-        model_id=model.id,
+        model_id=version.model_id,
         expires_at_epoch=int(expires.timestamp()),
-        size_bytes=request.size_bytes,
+        size_bytes=version.size_bytes,
     )

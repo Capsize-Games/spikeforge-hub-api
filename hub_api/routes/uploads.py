@@ -59,11 +59,7 @@ async def content(
     """Receive the reserved bytes, streaming them to storage."""
     _check_declared_length(request)
     version = await receive(
-        session,
-        storage,
-        upload_id,
-        user.id,
-        request.stream(),
+        session, storage, upload_id, user.id, request.stream()
     )
     await session.commit()
     return {

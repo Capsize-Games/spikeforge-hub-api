@@ -57,10 +57,7 @@ async def register(
 ) -> User:
     """Create an account from an address and a password."""
     address = normalise_email(email)
-    try:
-        PASSWORD_POLICY.check(password)
-    except PasswordValidationError as error:
-        raise WeakPasswordError(error.reason) from error
+    _check_strength(password)
     if await by_email(session, address) is not None:
         raise ConflictError(
             "an account already exists for that address; sign in, or reset "
@@ -76,6 +73,14 @@ async def register(
     session.add(created)
     await session.flush()
     return created
+
+
+def _check_strength(password: str) -> None:
+    """Refuse a password the policy rejects, carrying its reason."""
+    try:
+        PASSWORD_POLICY.check(password)
+    except PasswordValidationError as error:
+        raise WeakPasswordError(error.reason) from error
 
 
 async def sign_in(
@@ -153,26 +158,33 @@ async def _adoptable(
     return await by_email(session, profile.email)
 
 
-async def _from_profile(
-    session: AsyncSession, profile: OAuthProfile, config: Settings
-) -> User:
-    """Create a new account from a provider profile."""
+async def _check_address_free(
+    session: AsyncSession, profile: OAuthProfile
+) -> None:
+    """Refuse a profile that cannot become a new account."""
     if not profile.email:
         raise ConflictError(
             f"{profile.provider} did not return an email address, so an "
             "account cannot be created from it. Sign up with an address "
             "first, then link this provider."
         )
-    if await by_email(session, profile.email) is not None:
-        # The address is taken and this login did not earn the right to
-        # adopt it -- the provider did not say it was verified. Creating a
-        # second account on the same address is not possible, so say what
-        # the person can actually do about it.
-        raise ConflictError(
-            "an account already exists for that address, and "
-            f"{profile.provider} did not confirm you control it. Sign in to "
-            "that account and link this provider from your settings."
-        )
+    if await by_email(session, profile.email) is None:
+        return
+    # The address is taken and this login did not earn the right to adopt
+    # it -- the provider did not say it was verified. A second account on
+    # the same address is not possible, so say what can be done instead.
+    raise ConflictError(
+        "an account already exists for that address, and "
+        f"{profile.provider} did not confirm you control it. Sign in to "
+        "that account and link this provider from your settings."
+    )
+
+
+async def _from_profile(
+    session: AsyncSession, profile: OAuthProfile, config: Settings
+) -> User:
+    """Create a new account from a provider profile."""
+    await _check_address_free(session, profile)
     created = User(
         handle=await handles.allocate(
             session, profile.username, profile.email
