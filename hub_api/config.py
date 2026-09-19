@@ -10,7 +10,7 @@ growing video library.
 """
 
 from pathlib import Path
-from typing import Literal, cast
+from typing import Literal
 
 from capsize_commons.config import CapsizeSettings
 from capsize_commons.config import get_settings as _cached_settings
@@ -117,6 +117,4 @@ class Settings(CapsizeSettings):
 
 def settings() -> Settings:
     """Return the process-wide settings, read once."""
-    # The shared accessor is cached with `functools.cache`, which erases the
-    # generic return type as far as mypy is concerned; narrow it back.
-    return cast(Settings, _cached_settings(Settings))
+    return _cached_settings(Settings)

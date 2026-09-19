@@ -34,7 +34,7 @@ dependencies = [
     # argument; see the Dockerfile.
     "capsize-auth>=0.1.0",
     # Shared Capsize library: settings base and SQLAlchemy conventions.
-    "capsize-commons[config,db,web]>=0.1",
+    "capsize-commons[config,db,web]>=0.1.1",
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
     "sqlalchemy[asyncio]>=2.0.30",
