@@ -9,18 +9,19 @@ refuses uploads regardless of that cap -- the volume's other tenant is a
 growing video library.
 """
 
-from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
+from capsize_commons.config import CapsizeSettings
+from capsize_commons.config import get_settings as _cached_settings
 from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import SettingsConfigDict
 
 _GIB = 1024**3
 _MIB = 1024**2
 
 
-class Settings(BaseSettings):
+class Settings(CapsizeSettings):
     """Runtime configuration read from ``SPIKEFORGE_HUB_*`` variables."""
 
     model_config = SettingsConfigDict(
@@ -114,7 +115,8 @@ class Settings(BaseSettings):
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
 
-@lru_cache(maxsize=1)
 def settings() -> Settings:
     """Return the process-wide settings, read once."""
-    return Settings()
+    # The shared accessor is cached with `functools.cache`, which erases the
+    # generic return type as far as mypy is concerned; narrow it back.
+    return cast(Settings, _cached_settings(Settings))
